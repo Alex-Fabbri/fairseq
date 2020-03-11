@@ -19,43 +19,53 @@ from fairseq import options, tasks, utils
 from fairseq.data import indexed_dataset
 from fairseq.binarizer import Binarizer
 
-
+# AF: define properties of the string, including date format, where to write outptu
 logging.basicConfig(
     format='%(asctime)s | %(levelname)s | %(name)s | %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S',
     level=logging.INFO,
     stream=sys.stdout,
 )
+# AF: create a logger with this name
 logger = logging.getLogger('fairseq_cli.preprocess')
 
 
 def main(args):
+    # AF: add modules defined in --user-dir argument to PYTHONPATH
     utils.import_user_module(args)
 
     os.makedirs(args.destdir, exist_ok=True)
 
+    # AF: log to this file
     logger.addHandler(logging.FileHandler(
         filename=os.path.join(args.destdir, 'preprocess.log'),
     ))
     logger.info(args)
 
+    # AF: return the task class from the REGISTRY (which is name -> cls)
     task = tasks.get_task(args.task)
 
+    # AF: simple function to return path of training file for that lang
     def train_path(lang):
         return "{}{}".format(args.trainpref, ("." + lang) if lang else "")
 
+    # AF: return string {prefix}.{lang} if lang is not None
     def file_name(prefix, lang):
         fname = prefix
         if lang is not None:
             fname += ".{lang}".format(lang=lang)
         return fname
 
+    # AF: returns os path for {dest_dir}/{prefix}.{lang}
     def dest_path(prefix, lang):
         return os.path.join(args.destdir, file_name(prefix, lang))
 
+    # AF: returns full file path "dict" + lang + ".txt" (e.g. dict.en.txt)
     def dict_path(lang):
         return dest_path("dict", lang) + ".txt"
 
+    # AF: takes a list of filenames corresponding to input files and builds a dictionary
+    # from them. Specify either src or tgt. 
     def build_dictionary(filenames, src=False, tgt=False):
         assert src ^ tgt
         return task.build_dictionary(
@@ -67,26 +77,32 @@ def main(args):
         )
 
     target = not args.only_source
-
+    # AF: raise errors if the dictionary already exists
     if not args.srcdict and os.path.exists(dict_path(args.source_lang)):
         raise FileExistsError(dict_path(args.source_lang))
     if target and not args.tgtdict and os.path.exists(dict_path(args.target_lang)):
         raise FileExistsError(dict_path(args.target_lang))
 
+    # AF: same dictionary for src and tgt files
     if args.joined_dictionary:
         assert not args.srcdict or not args.tgtdict, \
             "cannot use both --srcdict and --tgtdict with --joined-dictionary"
 
         if args.srcdict:
+            # AF: load dictionary from a text file with format:
+            # <symbol0> <count0>
+            # <symbol1> <count1>
             src_dict = task.load_dictionary(args.srcdict)
         elif args.tgtdict:
             src_dict = task.load_dictionary(args.tgtdict)
         else:
+            # AF: build dictionary from train files
             assert args.trainpref, "--trainpref must be set if --srcdict is not specified"
             src_dict = build_dictionary(
                 {train_path(lang) for lang in [args.source_lang, args.target_lang]}, src=True
             )
         tgt_dict = src_dict
+    # AF: separate dictionaries for src and (optionally) tgt
     else:
         if args.srcdict:
             src_dict = task.load_dictionary(args.srcdict)
@@ -103,13 +119,18 @@ def main(args):
         else:
             tgt_dict = None
 
+    # AF: write a space-separated file of word -> count
     src_dict.save(dict_path(args.source_lang))
     if target and tgt_dict is not None:
         tgt_dict.save(dict_path(args.target_lang))
 
+    # AF: read file (already tokenized, only tokenizes spaces), convert to 
+    # ids, tensors and then numpy arrays which are written to a file (.bin)
+    # and then size, offsets to another file (.idx)
     def make_binary_dataset(vocab, input_prefix, output_prefix, lang, num_workers):
         logger.info("[{}] Dictionary: {} types".format(lang, len(vocab) - 1))
         n_seq_tok = [0, 0]
+        # AF: replaced keeps track of words not in vocab which are replaced with unk
         replaced = Counter()
 
         def merge_result(worker_result):
@@ -120,6 +141,8 @@ def main(args):
         input_file = "{}{}".format(
             input_prefix, ("." + lang) if lang is not None else ""
         )
+        # AF: find the offsets in bytes of the file when you chunk it 
+        # according to num_workers
         offsets = Binarizer.find_offsets(input_file, num_workers)
         pool = None
         if num_workers > 1:
@@ -141,8 +164,12 @@ def main(args):
                 )
             pool.close()
 
+        # AF: creates either a MMapIndexedDatasetBuilder (default) or IndexedDatasetBuilder oboject
         ds = indexed_dataset.make_builder(dataset_dest_file(args, output_prefix, lang, "bin"),
                                           impl=args.dataset_impl, vocab_size=len(vocab))
+        # AF: merge result just updates the dictionaries
+        # Binarizer.binarize takes the input file, vocabulary, tokenizes by spaces,
+        # converts to tensors and then adds numpy arrays to the .bin file
         merge_result(
             Binarizer.binarize(
                 input_file, vocab, lambda t: ds.add_item(t),
@@ -154,10 +181,14 @@ def main(args):
             for worker_id in range(1, num_workers):
                 prefix = "{}{}".format(output_prefix, worker_id)
                 temp_file_path = dataset_dest_prefix(args, prefix, lang)
+                # AF: merge the files created in multiprocessing; basically
+                # just appending from one file to the next, keeping track of
+                # sizes variable
                 ds.merge_file_(temp_file_path)
                 os.remove(indexed_dataset.data_file_path(temp_file_path))
                 os.remove(indexed_dataset.index_file_path(temp_file_path))
 
+        # AF: writes sizes to .idx file (dim_offsets, data_offsets, sizes for IndexedDataset)
         ds.finalize(dataset_dest_file(args, output_prefix, lang, "idx"))
 
         logger.info(
@@ -306,7 +337,8 @@ def main(args):
             for k, v in align_dict.items():
                 print("{} {}".format(src_dict[k], tgt_dict[v]), file=f)
 
-
+# AF: create an indexed_dataset builder, creates .bin and .idx files from input -- 
+# see comments in make_binary_dataset for more detail, as these are the same functions
 def binarize(args, filename, vocab, output_prefix, lang, offset, end, append_eos=True):
     ds = indexed_dataset.make_builder(dataset_dest_file(args, output_prefix, lang, "bin"),
                                       impl=args.dataset_impl, vocab_size=len(vocab))

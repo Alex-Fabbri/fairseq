@@ -29,10 +29,12 @@ def infer_language_pair(path):
             return parts[1].split('-')
     return src, dst
 
-
+# AF: this takes a batch of input and pads them to the length of the largest array
+# there are options to pad either at the beginning or the end of the tensors
 def collate_tokens(values, pad_idx, eos_idx=None, left_pad=False, move_eos_to_beginning=False):
     """Convert a list of 1d tensors into a padded 2d tensor."""
     size = max(v.size(0) for v in values)
+    # AF: make a matrix filled with pad_idx
     res = values[0].new(len(values), size).fill_(pad_idx)
 
     def copy_tensor(src, dst):
@@ -197,7 +199,7 @@ def filter_by_size(indices, dataset, max_positions, raise_exception=False):
         ).format(len(ignored), max_positions, ignored[:10]))
     return indices
 
-
+# AF: bucket input by size to reduce padding. It does this in the .pyx file for speed
 def batch_by_size(
     indices, num_tokens_fn, max_tokens=None, max_sentences=None,
     required_batch_size_multiple=1,

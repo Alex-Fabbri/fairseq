@@ -36,6 +36,7 @@ class Binarizer:
         nseq, ntok = 0, 0
         replaced = Counter()
 
+        # AF: check if word in dictionary, otherwise update replace
         def replaced_consumer(word, idx):
             if idx == dict.unk_index and word != dict.unk_word:
                 replaced.update([word])
@@ -43,10 +44,14 @@ class Binarizer:
         with open(filename, "r", encoding="utf-8") as f:
             f.seek(offset)
             # next(f) breaks f.tell(), hence readline() must be used
+            # AF: get the current line based on the offset
             line = safe_readline(f)
             while line:
                 if end > 0 and f.tell() > end:
                     break
+                # AF: sometimes the input file may already have lines
+                # which are tokenized and converted to indices, still includes
+                # options to append eos/reverse order
                 if already_numberized:
                     id_strings = line.strip().split()
                     id_list = [int(id_string) for id_string in id_strings]
@@ -56,6 +61,8 @@ class Binarizer:
                         id_list.append(dict.eos())
                     ids = torch.IntTensor(id_list)
                 else:
+                    # AF: runs tokenizer, reverse input (optional)
+                    # can add eos to end
                     ids = dict.encode_line(
                         line=line,
                         line_tokenizer=tokenize,

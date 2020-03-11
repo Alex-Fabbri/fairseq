@@ -43,6 +43,7 @@ class FairseqTask(object):
         Args:
             filename (str): the filename
         """
+        # AF: calls method which reads dict from file; returns dictionary
         return Dictionary.load(filename)
 
     @classmethod
@@ -62,6 +63,8 @@ class FairseqTask(object):
                 Tensor Cores).
         """
         d = Dictionary()
+        # AF: for each file, run multiprocessing function to tokenize (whitespace) line
+        # and add to dictionary
         for filename in filenames:
             Dictionary.add_file_to_dictionary(
                 filename, d, tokenizer.tokenize_line, workers

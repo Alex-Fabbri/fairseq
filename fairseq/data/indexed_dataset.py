@@ -42,6 +42,7 @@ def infer_dataset_impl(path):
 
 
 def make_builder(out_file, impl, vocab_size=None):
+    # AF: mmap is default
     if impl == 'mmap':
         return MMapIndexedDatasetBuilder(out_file, dtype=__best_fitting_dtype(vocab_size))
     else:
@@ -500,8 +501,10 @@ class MMapIndexedDatasetBuilder(object):
         self._sizes = []
 
     def add_item(self, tensor):
+        #AF: converts tensor to numpy array and writes it in bytes to file
         np_array = np.array(tensor.numpy(), dtype=self._dtype)
         self._data_file.write(np_array.tobytes(order='C'))
+        # AF: keep track of the size of the arrays
         self._sizes.append(np_array.size)
 
     def merge_file_(self, another_file):
@@ -514,6 +517,7 @@ class MMapIndexedDatasetBuilder(object):
 
         # Concatenate data
         with open(data_file_path(another_file), 'rb') as f:
+            # AF: copy to final data
             shutil.copyfileobj(f, self._data_file)
 
     def finalize(self, index_file):

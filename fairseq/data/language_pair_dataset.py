@@ -13,7 +13,7 @@ from . import data_utils, FairseqDataset
 
 logger = logging.getLogger(__name__)
 
-
+# combine samples into a batch
 def collate(
     samples, pad_idx, eos_idx, left_pad_source=True, left_pad_target=False,
     input_feeding=True,
@@ -22,6 +22,7 @@ def collate(
         return {}
 
     def merge(key, left_pad, move_eos_to_beginning=False):
+        # AF: this pads the matrix
         return data_utils.collate_tokens(
             [s[key] for s in samples],
             pad_idx, eos_idx, left_pad, move_eos_to_beginning,
@@ -50,9 +51,11 @@ def collate(
         return 1. / align_weights.float()
 
     id = torch.LongTensor([s['id'] for s in samples])
+    # AF: batch the input
     src_tokens = merge('source', left_pad=left_pad_source)
     # sort by descending source length
     src_lengths = torch.LongTensor([s['source'].numel() for s in samples])
+    # AF: sort the input by length
     src_lengths, sort_order = src_lengths.sort(descending=True)
     id = id.index_select(0, sort_order)
     src_tokens = src_tokens.index_select(0, sort_order)
@@ -65,6 +68,7 @@ def collate(
         tgt_lengths = torch.LongTensor([s['target'].numel() for s in samples]).index_select(0, sort_order)
         ntokens = sum(len(s['target']) for s in samples)
 
+        # AF: This will move an eos token to the beginning of the array
         if input_feeding:
             # we create a shifted version of targets for feeding the
             # previous output token(s) into the next decoder step
@@ -101,6 +105,7 @@ def collate(
         if left_pad_target:
             offsets[:, 1] += (tgt_sz - tgt_lengths)
 
+        # AF: we are mainly not worried about alignments
         alignments = [
             alignment + offset
             for align_idx, offset, src_len, tgt_len in zip(sort_order, offsets, src_lengths, tgt_lengths)

@@ -195,6 +195,8 @@ class Dictionary(object):
         d.add_from_file(f)
         return d
 
+    # AF: read over the lines of a pre-existing dicitonary and add symbols
+    # to the dictionary instance. 
     def add_from_file(self, f):
         """
         Loads a pre-existing dictionary from a text file and adds its symbols
@@ -218,7 +220,13 @@ class Dictionary(object):
 
         for line in lines[indices_start_line:]:
             try:
+                #AF: rstrip removes whitespace from the right
+                # rsplit splits but only once, the right most split
+                # so you may have  <word> <count> #fairseq:overwrite
+                # as a line
                 line, field = line.rstrip().rsplit(" ", 1)
+                # AF: this is used if we have duplicate words and
+                # we want to overwrite the dictionary entry
                 if field == "#fairseq:overwrite":
                     overwrite = True
                     line, field = line.rsplit(" ", 1)
@@ -257,6 +265,7 @@ class Dictionary(object):
 
     def save(self, f):
         """Stores dictionary into a text file"""
+        # AF: write all of the symbols except special symbols
         ex_keys, ex_vals = self._get_meta()
         self._save(
             f,
@@ -284,9 +293,11 @@ class Dictionary(object):
         if reverse_order:
             words = list(reversed(words))
         nwords = len(words)
+        # AF: torch.IntTensor(size)
         ids = torch.IntTensor(nwords + 1 if append_eos else nwords)
 
         for i, word in enumerate(words):
+            # AF: option to add to dictionary if not present
             if add_if_not_exist:
                 idx = self.add_symbol(word)
             else:
@@ -302,6 +313,9 @@ class Dictionary(object):
     def _add_file_to_dictionary_single_worker(
         filename, tokenize, eos_word, worker_id=0, num_workers=1
     ):
+        # AF: tokenizes the file (which is split into chunks for multiprocessing)
+        # applies tokenizer (but this is only the white space tokenizer)
+        # updates and returns the counter
         counter = Counter()
         with open(PathManager.get_local_path(filename), "r", encoding="utf-8") as f:
             size = os.fstat(f.fileno()).st_size
@@ -327,10 +341,15 @@ class Dictionary(object):
             for w, c in sorted(counter.items()):
                 dict.add_symbol(w, c)
 
+        # AF: add file using multi processing or not;
+        # merge_result will update the entries in the dictionary
+        # (since overwrite is false, it will add count, and not overwrite)
         if num_workers > 1:
             pool = Pool(processes=num_workers)
             results = []
             for worker_id in range(num_workers):
+                # AF: for each worker, read a chunk of the file, return a counter
+                # which will be merged
                 results.append(
                     pool.apply_async(
                         Dictionary._add_file_to_dictionary_single_worker,
