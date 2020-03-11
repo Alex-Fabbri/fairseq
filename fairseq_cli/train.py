@@ -45,6 +45,8 @@ def main(args, init_distributed=False):
     if init_distributed:
         args.distributed_rank = distributed_utils.distributed_init(args)
 
+    # AF: create a directory to save checkpoints (only need to do it once, which is why
+    # you do it when is_master)
     if distributed_utils.is_master(args):
         checkpoint_utils.verify_checkpoint_directory(args.save_dir)
 
@@ -59,7 +61,14 @@ def main(args, init_distributed=False):
         task.load_dataset(valid_sub_split, combine=False, epoch=1)
 
     # Build model and criterion
+    # AF: build_model calls models.build_model(args, self), 
+    # which builds model from the specified arch:
+    # ARCH_MODEL_REGISTRY[args.arch].build_model(args, task)
+    # note that model architecture arguments are processed in options.py:
+    # parse_args_and_arch(), so the args we pass above will already include
+    # those arguments
     model = task.build_model(args)
+    # AF: build_criterion is similar and can be found in fairseq_criterion.py
     criterion = task.build_criterion(args)
     logger.info(model)
     logger.info('model {}, criterion {}'.format(args.arch, criterion.__class__.__name__))
@@ -69,6 +78,8 @@ def main(args, init_distributed=False):
     ))
 
     # Build trainer
+    # AF: this just sets the task, model, criterion as self. objects in Trainer, 
+    # also puts the model on the GPU
     trainer = Trainer(args, task, model, criterion)
     logger.info('training on {} GPUs'.format(args.distributed_world_size))
     logger.info('max tokens per GPU = {} and max sentences per GPU = {}'.format(
@@ -78,15 +89,21 @@ def main(args, init_distributed=False):
 
     # Load the latest checkpoint if one is available and restore the
     # corresponding train iterator
+    # AF: important function!
     extra_state, epoch_itr = checkpoint_utils.load_checkpoint(args, trainer)
 
     # Train until the learning rate gets too small
     max_epoch = args.max_epoch or math.inf
     max_update = args.max_update or math.inf
+    # returns the learning rate from the optimizer
+    # AF: return learning rate so that you can stop based on the lr
     lr = trainer.get_lr()
+    # AF: computes the sum of time for the epoch below
     train_meter = meters.StopwatchMeter()
     train_meter.start()
     valid_subsets = args.valid_subset.split(',')
+    # AF: while the lr is above the minimum, and the epoch and number of updates
+    # are less than the maximum, keep training
     while (
         lr > args.min_lr
         and epoch_itr.next_epoch_idx <= max_epoch
@@ -104,6 +121,7 @@ def main(args, init_distributed=False):
         lr = trainer.lr_step(epoch_itr.epoch, valid_losses[0])
 
         # save checkpoint
+        # save last, best (calculate best checkpoint); also has options to remove previous checkpoints
         if epoch_itr.epoch % args.save_interval == 0:
             checkpoint_utils.save_checkpoint(args, trainer, epoch_itr, valid_losses[0])
 
@@ -112,6 +130,7 @@ def main(args, init_distributed=False):
             logger.info('early stop since valid performance hasn\'t improved for last {} runs'.format(args.patience))
             break
 
+        # AF: get the iterator for the next epoch
         epoch_itr = trainer.get_train_iterator(
             epoch_itr.next_epoch_idx,
             # sharded data: get train iterator for next epoch
@@ -142,10 +161,14 @@ def should_stop_early(args, valid_loss):
 def train(args, trainer, task, epoch_itr):
     """Train the model for one epoch."""
     # Initialize data iterator
+    # AF: this gets a new iterator by either prefetching the data or 
+    # taking the sampling indices and returning a Counting Iterator
+    # on top of a PyTorch DataLoader
     itr = epoch_itr.next_epoch_itr(
         fix_batches_to_gpus=args.fix_batches_to_gpus,
         shuffle=(epoch_itr.next_epoch_idx > args.curriculum),
     )
+    # AF: calculate the update frequency -- gradient accumulation
     update_freq = (
         args.update_freq[epoch_itr.epoch - 1]
         if epoch_itr.epoch <= len(args.update_freq)
@@ -170,6 +193,7 @@ def train(args, trainer, task, epoch_itr):
     max_update = args.max_update or math.inf
     for samples in progress:
         with metrics.aggregate('train_inner'):
+            # AF: this calls self.task.train_step()
             log_output = trainer.train_step(samples)
             if log_output is None:  # OOM, overflow, ...
                 continue
@@ -190,6 +214,7 @@ def train(args, trainer, task, epoch_itr):
             and num_updates % args.save_interval_updates == 0
             and num_updates > 0
         ):
+            # AF: very similar to the train function
             valid_losses = validate(args, trainer, task, epoch_itr, valid_subsets)
             checkpoint_utils.save_checkpoint(args, trainer, epoch_itr, valid_losses[0])
 

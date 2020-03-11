@@ -64,7 +64,12 @@ def load_langpair_dataset(
                 raise FileNotFoundError('Dataset not found: {} ({})'.format(split, data_path))
 
         src_dataset = data_utils.load_indexed_dataset(prefix + src, src_dict, dataset_impl)
+        # AF: truncate source is used in the summarization examples, since you usually
+        # truncate to some length. Here truncatation is only defined on the source side but it 
+        # could also be applied for the target (for training/validation splits)
         if truncate_source:
+            # AF: strips eos tokens, truncates to max_source_positions -1 (the -1 is because we then 
+            # append eos)
             src_dataset = AppendTokenDataset(
                 TruncateDataset(
                     StripTokenDataset(src_dataset, src_dict.eos()),
@@ -245,6 +250,7 @@ class TranslationTask(FairseqTask):
         # infer langcode
         src, tgt = self.args.source_lang, self.args.target_lang
 
+        # AF: this will load the indexed dataset
         self.datasets[split] = load_langpair_dataset(
             data_path, split, src, self.src_dict, tgt, self.tgt_dict,
             combine=combine, dataset_impl=self.args.dataset_impl,

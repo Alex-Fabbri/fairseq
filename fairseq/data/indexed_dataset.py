@@ -50,12 +50,15 @@ def make_builder(out_file, impl, vocab_size=None):
 
 
 def make_dataset(path, impl, fix_lua_indexing=False, dictionary=None):
+    # AF: indexed raw textdataset just keeps a list of tokens in memory
     if impl == 'raw' and IndexedRawTextDataset.exists(path):
         assert dictionary is not None
         return IndexedRawTextDataset(path, dictionary)
     elif impl == 'lazy' and IndexedDataset.exists(path):
         return IndexedDataset(path, fix_lua_indexing=fix_lua_indexing)
     elif impl == 'cached' and IndexedDataset.exists(path):
+        #AF: cached indexed dataset is the same as IndexedDataset except that is 
+        # supports prefetching
         return IndexedCachedDataset(path, fix_lua_indexing=fix_lua_indexing)
     elif impl == 'mmap' and MMapIndexedDataset.exists(path):
         return MMapIndexedDataset(path)
@@ -353,6 +356,7 @@ class MMapIndexedDataset(torch.utils.data.Dataset):
     class Index(object):
         _HDR_MAGIC = b'MMIDIDX\x00\x00'
 
+        #AF: the write is is just an object that writes to a binary file
         @classmethod
         def writer(cls, path, dtype):
             class _Writer(object):
@@ -364,7 +368,7 @@ class MMapIndexedDataset(torch.utils.data.Dataset):
                     self._file.write(struct.pack('<B', code(dtype)))
 
                     return self
-
+                # AF: get pointers to objects based on the byte size of the objects
                 @staticmethod
                 def _get_pointers(sizes):
                     dtype_size = dtype().itemsize
@@ -379,13 +383,14 @@ class MMapIndexedDataset(torch.utils.data.Dataset):
 
                 def write(self, sizes):
                     pointers = self._get_pointers(sizes)
-
+                    #AF: write length of sizes
                     self._file.write(struct.pack('<Q', len(sizes)))
-
+                    # AF: write sizes array
                     sizes = np.array(sizes, dtype=np.int32)
                     self._file.write(sizes.tobytes(order='C'))
                     del sizes
-
+                    
+                    # AF: write pointers to objects
                     pointers = np.array(pointers, dtype=np.int64)
                     self._file.write(pointers.tobytes(order='C'))
                     del pointers
@@ -413,8 +418,10 @@ class MMapIndexedDataset(torch.utils.data.Dataset):
                 offset = stream.tell()
 
             _warmup_mmap_file(path)
-
+            # AF: I believe this memory mapping is what differs it the most from 
+            # the Indexed Dataset, but I don't fully understand how this works
             self._bin_buffer_mmap = np.memmap(path, mode='r', order='C')
+            #AF: TODO -- check memoryview
             self._bin_buffer = memoryview(self._bin_buffer_mmap)
             self._sizes = np.frombuffer(self._bin_buffer, dtype=np.int32, count=self._len, offset=offset)
             self._pointers = np.frombuffer(self._bin_buffer, dtype=np.int64, count=self._len,

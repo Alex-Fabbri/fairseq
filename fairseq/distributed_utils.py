@@ -85,6 +85,8 @@ def distributed_init(args):
         logger.info('distributed init (rank {}): {}'.format(
             args.distributed_rank, args.distributed_init_method,
         ))
+        # AF: initialize the distributed process for this rank (this process)
+        # world size is the total number of GPUs
         dist.init_process_group(
             backend=args.distributed_backend,
             init_method=args.distributed_init_method,

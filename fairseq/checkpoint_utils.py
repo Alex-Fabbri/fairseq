@@ -109,7 +109,8 @@ def save_checkpoint(args, trainer, epoch_itr, val_loss):
             if os.path.lexists(old_chk):
                 os.remove(old_chk)
 
-
+# AF: the main functions are trainer.load_checkpoint
+# and trainer.get_train_iterator
 def load_checkpoint(args, trainer, **passthrough_args):
     """
     Load a checkpoint and restore the training iterator.
@@ -126,6 +127,9 @@ def load_checkpoint(args, trainer, **passthrough_args):
     else:
         checkpoint_path = args.restore_file
 
+    # AF: load saved model state if present, build and load optimizer, 
+    # load and metrics. Extra state may contain objects such as iterators
+    # which you want to restore from a checkpoint
     extra_state = trainer.load_checkpoint(
         checkpoint_path,
         args.reset_optimizer,
@@ -142,6 +146,9 @@ def load_checkpoint(args, trainer, **passthrough_args):
     ):
         save_checkpoint.best = extra_state["best"]
 
+    # AF: get_train_iterator does two things: 
+    # 1) loads dataset through self.task.load_dataset
+    # 2) loads batch iterator through self.task.get_batch_iterator
     if extra_state is not None and not args.reset_dataloader:
         # restore iterator from checkpoint
         itr_state = extra_state["train_iterator"]
@@ -154,6 +161,8 @@ def load_checkpoint(args, trainer, **passthrough_args):
             epoch=1, load_dataset=True, **passthrough_args
         )
 
+    # AF: update the learning rate at the end of each epoch (actually updates it 
+    # according to the current update step)
     trainer.lr_step(epoch_itr.epoch)
 
     return extra_state, epoch_itr

@@ -268,6 +268,7 @@ class EpochBatchIterator(EpochBatchIterating):
 
     def _get_iterator_for_epoch(self, epoch, shuffle, fix_batches_to_gpus=False, offset=0):
 
+        #AF: randomly shuffle batches
         def shuffle_batches(batches, seed):
             with data_utils.numpy_seed(seed):
                 np.random.shuffle(batches)
@@ -291,6 +292,7 @@ class EpochBatchIterator(EpochBatchIterating):
                 batches = shuffle_batches(list(self.frozen_batches), self.seed + epoch)
             else:
                 batches = self.frozen_batches
+            #AF: 
             batches = list(ShardedIterator(
                 batches, self.num_shards, self.shard_id, fill_value=[]
             ))
@@ -301,6 +303,7 @@ class EpochBatchIterator(EpochBatchIterating):
         if self.num_workers > 0:
             os.environ['PYTHONWARNINGS'] = 'ignore:semaphore_tracker:UserWarning'
 
+        # AF: returns a counting interator over a PyTorch DataLoader
         return CountingIterator(
             torch.utils.data.DataLoader(
                 self.dataset,

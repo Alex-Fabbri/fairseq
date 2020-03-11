@@ -243,6 +243,7 @@ class Trainer(object):
         """Return an EpochBatchIterator over the training set for a given epoch."""
         if load_dataset:
             logger.info("loading train data for epoch {}".format(epoch))
+            # AF: loads e.g. a langpair dataset for translation
             self.task.load_dataset(
                 self.args.train_subset,
                 epoch=epoch,
@@ -283,6 +284,7 @@ class Trainer(object):
         # forward and backward pass
         logging_outputs, sample_size, ooms = [], 0, 0
         for i, sample in enumerate(samples):
+            # AF: move samples to GPU, other preparation
             sample = self._prepare_sample(sample)
             if sample is None:
                 # when sample is None, run forward/backward on a dummy batch
@@ -292,6 +294,7 @@ class Trainer(object):
             else:
                 is_dummy_batch = False
 
+            # AF: review this -- related to distributed training and 
             def maybe_no_sync():
                 """
                 Whenever *samples* contains more than one mini-batch, we
@@ -310,6 +313,7 @@ class Trainer(object):
             try:
                 with maybe_no_sync():
                     # forward and backward
+                    # AF: calls criterion(model, sample) and does optimizer.backward(loss)
                     loss, sample_size_i, logging_output = self.task.train_step(
                         sample=sample,
                         model=self.model,

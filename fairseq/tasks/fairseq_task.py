@@ -163,10 +163,11 @@ class FairseqTask(object):
         dataset.set_epoch(epoch)
 
         # get indices ordered by example size
+        # AF: order by size.
         with data_utils.numpy_seed(seed):
             indices = dataset.ordered_indices()
 
-        # filter examples that are too large
+        # filter examples (indices corresponding to examples) that are too large
         if max_positions is not None:
             indices = data_utils.filter_by_size(
                 indices,
@@ -176,6 +177,8 @@ class FairseqTask(object):
             )
 
         # create mini-batches with given size constraints
+        # AF: create a batch sample over the indices (tells you how to choose
+        # indices corresponding to data for a particular batch)
         batch_sampler = data_utils.batch_by_size(
             indices,
             dataset.num_tokens,

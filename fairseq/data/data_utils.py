@@ -74,8 +74,13 @@ def load_indexed_dataset(path, dictionary, dataset_impl=None, combine=False, def
 
         dataset_impl_k = dataset_impl
         if dataset_impl_k is None:
+            # AF: infers the dataset based on the header in the file
             dataset_impl_k = indexed_dataset.infer_dataset_impl(path_k)
 
+        #AF: returns dataset based on dataset_impl; note that the dictionary
+        # is only used for the raw text dataset and that fix_lua_indexing 
+        # is used for indexed/indexed cached because lua was 1-based rather 
+        # than 0-based
         dataset = indexed_dataset.make_dataset(
             path_k,
             impl=dataset_impl_k or default,

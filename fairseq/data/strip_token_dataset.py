@@ -14,4 +14,5 @@ class StripTokenDataset(BaseWrapperDataset):
 
     def __getitem__(self, index):
         item = self.dataset[index]
+        # AF: return all items in tensor not equal to id_to_strip
         return item[item.ne(self.id_to_strip)]
