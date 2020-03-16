@@ -65,6 +65,8 @@ def _main(args, output_file):
 
     # Load ensemble
     logger.info('loading model(s) from {}'.format(args.path))
+    # AF: loads a list of models (for ensembles) to the cpu as 
+    # well as any args in the state["args"] of the checkpoint state
     models, _model_args = checkpoint_utils.load_model_ensemble(
         args.path.split(os.pathsep),
         arg_overrides=eval(args.model_overrides),
@@ -73,6 +75,7 @@ def _main(args, output_file):
 
     # Optimize ensemble for generation
     for model in models:
+        # AF: remove weight norms, anything unnecessary for generation
         model.make_generation_fast_(
             beamable_mm_beam_size=None if args.no_beamable_mm else args.beam,
             need_attn=args.print_alignment,
@@ -87,6 +90,8 @@ def _main(args, output_file):
     align_dict = utils.load_align_dict(args.replace_unk)
 
     # Load dataset (possibly sharded)
+    # AF: this iterator is the same as in training, except
+    # we take into account the max_positions from multiple models
     itr = task.get_batch_iterator(
         dataset=task.dataset(args.gen_subset),
         max_tokens=args.max_tokens,
@@ -100,7 +105,7 @@ def _main(args, output_file):
         num_shards=args.num_shards,
         shard_id=args.shard_id,
         num_workers=args.num_workers,
-    ).next_epoch_itr(shuffle=False)
+    ).next_epoch_itr(shuffle=False)#AF shuffle is false during generation
     progress = progress_bar.progress_bar(
         itr,
         log_format=args.log_format,
@@ -110,9 +115,14 @@ def _main(args, output_file):
 
     # Initialize generator
     gen_timer = StopwatchMeter()
+    # AF: returns either a sequence generator (SequenceGenerator or SequenceGeneratorWithAlignment)
+    # which takes in length-related parameters as well as a search strategy (
+    # search.BeamSearch(self.target_dictionary), search.DiverseSiblingsSearch, 
+    # search.LengthConstrainedBeamSearch, search.DiverseBeamSearch, search.Sampling)
     generator = task.build_generator(args)
 
     # Generate and compute BLEU score
+    # AF: add a scorer (only has bleu scorers)
     if args.sacrebleu:
         scorer = bleu.SacrebleuScorer()
     else:
@@ -120,6 +130,7 @@ def _main(args, output_file):
     num_sentences = 0
     has_target = True
     wps_meter = TimeMeter()
+    # AF: for each batch
     for sample in progress:
         sample = utils.move_to_cuda(sample) if use_cuda else sample
         if 'net_input' not in sample:
@@ -130,10 +141,13 @@ def _main(args, output_file):
             prefix_tokens = sample['target'][:, :args.prefix_size]
 
         gen_timer.start()
+        # AF: run inference for this batch -- this is where the main action happens
+        # calls generator.generate(models, sample, prefix_tokens=prefix_tokens)
         hypos = task.inference_step(generator, models, sample, prefix_tokens)
         num_generated_tokens = sum(len(h[0]['tokens']) for h in hypos)
         gen_timer.stop(num_generated_tokens)
 
+        # AF: process the hypotheses, print out results
         for i, sample_id in enumerate(sample['id'].tolist()):
             has_target = sample['target'] is not None
 
@@ -195,6 +209,7 @@ def _main(args, output_file):
 
                     if getattr(args, 'retain_iter_history', False):
                         for step, h in enumerate(hypo['history']):
+                            # AF: encode back to readable form
                             _, h_str, _ = utils.post_process_prediction(
                                 hypo_tokens=h['tokens'].int().cpu(),
                                 src_str=src_str,
@@ -229,6 +244,8 @@ def _main(args, output_file):
 
 
 def cli_main():
+    # AF: add arguments related to which subset to use, ignoring examples
+    # and add arguments related to sampling methods
     parser = options.get_generation_parser()
     args = options.parse_args_and_arch(parser)
     main(args)
