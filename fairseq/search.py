@@ -46,7 +46,7 @@ class Search(nn.Module):
     def set_src_lengths(self, src_lengths):
         self.src_lengths = src_lengths
 
-
+# AF: standard beam search, returns 2 x beam_size predictions for dealing with EOS
 class BeamSearch(Search):
     def __init__(self, tgt_dict):
         super().__init__(tgt_dict)
@@ -79,7 +79,8 @@ class BeamSearch(Search):
         indices_buf.fmod_(vocab_size)
         return scores_buf, indices_buf, beams_buf
 
-
+# AF: the same as beam search above, except first it restricts output based by setting
+# log probabilities to -math.inf or 0 depending on the step
 class LengthConstrainedBeamSearch(Search):
     def __init__(self, tgt_dict, min_len_a, min_len_b, max_len_a, max_len_b):
         super().__init__(tgt_dict)
@@ -97,7 +98,7 @@ class LengthConstrainedBeamSearch(Search):
         lprobs[step > max_lens, :, self.eos] = -math.inf
         return self.beam.step(step, lprobs, scores)
 
-
+# AF: applies a diversity penalty before doing beam search step
 class DiverseBeamSearch(Search):
     """Diverse Beam Search.
 

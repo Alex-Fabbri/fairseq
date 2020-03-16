@@ -106,6 +106,8 @@ class SequenceGenerator(object):
 
         # model.forward normally channels prev_output_tokens into the decoder
         # separately, but SequenceGenerator directly calls model.encoder
+        # AF: note that there are assumptions as to what items the sample 
+        # dictionary contains
         encoder_input = {
             k: v for k, v in sample['net_input'].items()
             if k != 'prev_output_tokens'
@@ -119,6 +121,7 @@ class SequenceGenerator(object):
         src_len = input_size[1]
         beam_size = self.beam_size
 
+        # AF: set the max_len based on input parameters
         if self.match_source_len:
             max_len = src_lengths.max().item()
         else:
@@ -155,6 +158,8 @@ class SequenceGenerator(object):
         num_remaining_sent = bsz
 
         # number of candidate hypos per step
+        # AF: only consider EOS hypothesis if it falls in the top half
+        # http://www.telesens.co/2019/04/21/understanding-incremental-decoding-in-fairseq/#Why_does_beam_search_return_twice_the_number_of_tokens_as_the_number_of_beams
         cand_size = 2 * beam_size  # 2 x beam size in case half are EOS
 
         # offset arrays for converting between different indexing schemes
@@ -262,6 +267,16 @@ class SequenceGenerator(object):
 
         reorder_state = None
         batch_idxs = None
+        # AF: for each step do the following:
+        # 1) model.forward_decoder() -- returns lprobs, avg_attn_scores
+        # 2) modify the log probabilities to deal with constraints such as length, repeated ngrams
+        # 3) run the search algorithm on the logprobabilities and scores:
+        #           cand_scores, cand_indices, cand_beams = self.search.step()
+        #  search.step takes in the log probabilities at the current step, the scores of
+        #  each hypothesis up to this point and returns the scores of the chosen elements, 
+        # the indices of the chosen elements, and the hypothesis ids
+        # 
+        # 4) Finalize the hypotheses: finalized_sents = finalize_hypos(step, eos_bbsz_idx, eos_scores)
         for step in range(max_len + 1):  # one extra step for EOS marker
             # reorder decoder internal states based on the prev choice of beams
             if reorder_state is not None:
@@ -528,6 +543,8 @@ class EnsembleModel(torch.nn.Module):
 
     @torch.no_grad()
     def forward_decoder(self, tokens, encoder_outs, temperature=1.):
+        # AF: if we only have one model, just run the decoding
+        # and return
         if len(self.models) == 1:
             return self._decode_one(
                 tokens,
@@ -538,6 +555,7 @@ class EnsembleModel(torch.nn.Module):
                 temperature=temperature,
             )
 
+        # AF: otherwise need to run multiple models and average probabilities
         log_probs = []
         avg_attn = None
         for model, encoder_out in zip(self.models, encoder_outs):
@@ -564,6 +582,7 @@ class EnsembleModel(torch.nn.Module):
         self, tokens, model, encoder_out, incremental_states, log_probs,
         temperature=1.,
     ):
+        # AF: run forward_decoder step for model
         if self.incremental_states is not None:
             decoder_out = list(model.forward_decoder(
                 tokens, encoder_out=encoder_out, incremental_state=self.incremental_states[model],
@@ -571,6 +590,7 @@ class EnsembleModel(torch.nn.Module):
         else:
             decoder_out = list(model.forward_decoder(tokens, encoder_out=encoder_out))
         decoder_out[0] = decoder_out[0][:, -1:, :]
+        # AF: this is the only place where temperature is used; divide by it here
         if temperature != 1.:
             decoder_out[0].div_(temperature)
         attn = decoder_out[1] if len(decoder_out) > 1 else None
